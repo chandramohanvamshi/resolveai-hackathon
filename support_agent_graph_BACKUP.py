@@ -22,8 +22,12 @@ llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
 # ---------------------------------------------------------------------------
 # Supabase setup - replace with your actual project URL and publishable key
 # ---------------------------------------------------------------------------
-SUPABASE_URL = "https://aprwodhwezozmyciweaf.supabase.co"
-SUPABASE_KEY = "sb_publishable_TYO_hx51A8oPczNOBXSQlQ_lhY2aQQn"
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
@@ -56,26 +60,18 @@ def clean_json(text: str) -> str:
 # 2. Node: Understand & classify
 # ---------------------------------------------------------------------------
 def understand(state: AgentState) -> AgentState:
-    prompt = f"""Classify this customer message and extract any order ID.
-
-Categories:
-- "order_issue": customer is asking about a specific order (refund, delivery, cancellation, etc.)
-- "general_question": customer is asking a general question (policy, shipping times, how something works) not tied to a specific order
-- "greeting": customer is just saying hello or making small talk
-- "unclear": message doesn't fit any category above
-
-Return ONLY JSON, no other text:
-{{"category": "order_issue" or "general_question" or "greeting" or "unclear", "order_id": "..." or null}}
+    prompt = f"""Extract the customer's intent and any order ID from this message.
+Return ONLY JSON, no other text: {{"intent": "...", "order_id": "..." or null}}
 
 Message: {state['customer_message']}"""
 
     try:
         response = llm.invoke(prompt)
         parsed = json.loads(clean_json(response.content))
-        intent = parsed.get("category", "unclear")
+        intent = parsed.get("intent", "unknown")
         order_id = parsed.get("order_id")
     except (json.JSONDecodeError, KeyError, AttributeError):
-        intent = "unclear"
+        intent = "unknown"
         order_id = None
 
     return {**state, "intent": intent, "order_id": order_id}
@@ -99,38 +95,12 @@ def retrieve_context(state: AgentState) -> AgentState:
 # 4. Node: Reason & decide (the branch point)
 # ---------------------------------------------------------------------------
 def reason_and_decide(state: AgentState) -> AgentState:
-    if state["intent"] == "greeting":
-        return {
-            **state,
-            "decision": "answered",
-            "reasoning": "Customer sent a greeting.",
-            "action_result": "Hi! I'm ResolveAI, your support assistant. I can help with refunds and order issues - what can I help you with?",
-        }
-
-    if state["intent"] == "general_question":
-        answer = answer_general_question(state["customer_message"], state["policy_context"])
-        return {
-            **state,
-            "decision": "answered",
-            "reasoning": "Answered a general question using policy knowledge.",
-            "action_result": answer,
-        }
-
-    if state["intent"] == "unclear":
-        return {
-            **state,
-            "decision": "answered",
-            "reasoning": "Message intent was unclear.",
-            "action_result": "I'm not sure I understood that. Could you tell me more about what you need help with - for example, an order issue or a general question?",
-        }
-
     if not state["order_id"]:
         return {
             **state,
             "decision": "needs_info",
             "reasoning": "No order ID was provided by the customer.",
         }
-
 
     if state["order_data"] is None:
         return {
@@ -161,40 +131,11 @@ Return ONLY JSON, no other text:
     return {**state, "decision": decision, "reasoning": reasoning}
 
 
-def route_decision(state: AgentState) -> Literal["auto_resolve", "escalate", "needs_info", "answered"]:
+def route_decision(state: AgentState) -> Literal["auto_resolve", "escalate", "needs_info"]:
     """Conditional edge function - reads state, returns next node name."""
-    if state["decision"] in ("auto_resolve", "escalate", "needs_info", "answered"):
+    if state["decision"] in ("auto_resolve", "escalate", "needs_info"):
         return state["decision"]
     return "escalate"
-
-
-# ---------------------------------------------------------------------------
-# 4a. Helper: Answer a general question directly (no order needed)
-# ---------------------------------------------------------------------------
-def answer_general_question(customer_message: str, policy_context: str) -> str:
-    prompt = f"""You are a friendly customer support assistant. Answer the customer's
-question using only the policy information below. Keep the answer short and direct.
-If the policy doesn't cover their question, say you're not sure and offer to connect
-them with the team.
-
-Policy: {policy_context}
-
-Customer question: {customer_message}
-
-Answer:"""
-
-    try:
-        response = llm.invoke(prompt)
-        return response.content.strip()
-    except Exception:
-        return "I'm having trouble answering that right now - let me connect you with our support team."
-
-
-# ---------------------------------------------------------------------------
-# 4c. Node: Answered (general question / greeting / unclear - already resolved)
-# ---------------------------------------------------------------------------
-def answered(state: AgentState) -> AgentState:
-    return state
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +202,6 @@ graph.add_node("reason_and_decide", reason_and_decide)
 graph.add_node("auto_resolve", auto_resolve)
 graph.add_node("escalate", escalate)
 graph.add_node("needs_info", needs_info)
-graph.add_node("answered", answered)
 graph.add_node("audit_trail", audit_trail)
 
 graph.set_entry_point("understand")
@@ -275,14 +215,12 @@ graph.add_conditional_edges(
         "auto_resolve": "auto_resolve",
         "escalate": "escalate",
         "needs_info": "needs_info",
-        "answered": "answered",
     },
 )
 
 graph.add_edge("auto_resolve", "audit_trail")
 graph.add_edge("escalate", "audit_trail")
 graph.add_edge("needs_info", END)
-graph.add_edge("answered", END)
 graph.add_edge("audit_trail", END)
 
 app = graph.compile()
