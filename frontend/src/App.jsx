@@ -88,6 +88,7 @@ export default function ResolveAIChat() {
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [wakingUp, setWakingUp] = useState(false);
   const [activeStep, setActiveStep] = useState(-1); // -1 = idle, STEPS.length = done
   const [auditFeed, setAuditFeed] = useState([]);
   const [expanded, setExpanded] = useState({});
@@ -95,6 +96,18 @@ export default function ResolveAIChat() {
 
   const scrollRef = useRef(null);
   const stepTimerRef = useRef(null);
+  const wakingTimerRef = useRef(null);
+
+  const fetchWithTimeout = async (url, options, timeoutMs) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      return res;
+    } finally {
+      clearTimeout(id);
+    }
+  };
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -103,7 +116,10 @@ export default function ResolveAIChat() {
   }, [messages, isLoading]);
 
   useEffect(() => {
-    return () => clearInterval(stepTimerRef.current);
+    return () => {
+      clearInterval(stepTimerRef.current);
+      clearTimeout(wakingTimerRef.current);
+    };
   }, []);
 
   const toggleReasoning = (id) => {
@@ -144,18 +160,36 @@ export default function ResolveAIChat() {
       setIsLoading(true);
       runStepAnimation();
 
-      try {
-        const res = await fetch(API_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ customer_message: text }),
-        });
+      // If the first attempt takes more than 4s, it's likely a cold start on the free
+      // hosting tier - let the person know rather than leaving them guessing.
+      wakingTimerRef.current = setTimeout(() => setWakingUp(true), 4000);
 
-        if (!res.ok) {
-          throw new Error(`Server responded with ${res.status}`);
+      const attempt = async () => {
+        const res = await fetchWithTimeout(
+          API_URL,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ customer_message: text }),
+          },
+          65000
+        );
+        if (!res.ok) throw new Error(`Server responded with ${res.status}`);
+        return res.json();
+      };
+
+      try {
+        let data;
+        try {
+          data = await attempt();
+        } catch (firstErr) {
+          // One silent retry - covers the case where the free-tier server was
+          // asleep and the first request woke it up but didn't complete in time.
+          data = await attempt();
         }
 
-        const data = await res.json();
+        clearTimeout(wakingTimerRef.current);
+        setWakingUp(false);
         finishStepAnimation();
 
         setMessages((prev) => [
@@ -173,6 +207,8 @@ export default function ResolveAIChat() {
           setAuditFeed((prev) => [...data.audit_log.slice().reverse(), ...prev].slice(0, 20));
         }
       } catch (err) {
+        clearTimeout(wakingTimerRef.current);
+        setWakingUp(false);
         finishStepAnimation();
         setMessages((prev) => [
           ...prev,
@@ -180,7 +216,7 @@ export default function ResolveAIChat() {
             id: nextId(),
             role: "error",
             text:
-              "I couldn't reach the ResolveAI backend just now. Check that the server is running and try again.",
+              "The server is taking longer than expected to respond (it may be waking up from idle). Please try sending your message again in a moment.",
           },
         ]);
       } finally {
@@ -244,10 +280,17 @@ export default function ResolveAIChat() {
                 <div className="w-7 h-7 rounded-full bg-slate-900 flex items-center justify-center shrink-0">
                   <Bot className="w-4 h-4 text-cyan-400" />
                 </div>
-                <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-4 py-2.5 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.3s]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.15s]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" />
+                <div>
+                  <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-4 py-2.5 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.3s]" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.15s]" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" />
+                  </div>
+                  {wakingUp && (
+                    <p className="text-[11px] text-slate-500 mt-1.5 px-1 max-w-[220px]">
+                      Still working — the server may be waking up from idle. This can take up to a minute.
+                    </p>
+                  )}
                 </div>
               </div>
             )}
