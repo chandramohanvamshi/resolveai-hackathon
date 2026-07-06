@@ -188,6 +188,14 @@ export default function ResolveAIChat() {
           data = await attempt();
         }
 
+        // The backend returns { error, detail } instead of a normal decision
+        // payload when something goes wrong server-side - treat that as a
+        // failure rather than rendering a blank message bubble.
+        if (data.error || !data.decision) {
+          console.error("Backend error response:", data);
+          throw new Error(data.detail || data.error || "Empty response from server");
+        }
+
         clearTimeout(wakingTimerRef.current);
         setWakingUp(false);
         finishStepAnimation();
@@ -216,7 +224,7 @@ export default function ResolveAIChat() {
             id: nextId(),
             role: "error",
             text:
-              "The server is taking longer than expected to respond (it may be waking up from idle). Please try sending your message again in a moment.",
+              "Something went wrong processing that message. Please try rephrasing or sending it again.",
           },
         ]);
       } finally {
