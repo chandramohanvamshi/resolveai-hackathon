@@ -185,7 +185,10 @@ Answer:"""
 
     try:
         response = llm.invoke(prompt)
-        return response.content.strip()
+        answer = (response.content or "").strip()
+        if not answer:
+            return "I don't have a clear answer for that from our policy. Let me connect you with our support team."
+        return answer
     except Exception:
         return "I'm having trouble answering that right now - let me connect you with our support team."
 
@@ -374,10 +377,11 @@ def chat(request: MessageRequest):
             "customer_message": request.customer_message,
             "audit_log": [],
         })
+        action_result = result.get("action_result") or "I'm not sure how to respond to that - could you rephrase, or share your order ID?"
         return {
             "decision": result["decision"],
             "reasoning": result["reasoning"],
-            "action_result": result["action_result"],
+            "action_result": action_result,
             "audit_log": result["audit_log"],
         }
     except Exception as e:
