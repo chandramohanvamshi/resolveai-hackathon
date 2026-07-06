@@ -76,16 +76,29 @@ const nextId = () => {
 };
 
 export default function ResolveAIChat() {
-  const [messages, setMessages] = useState([
-    {
-      id: nextId(),
-      role: "agent",
-      decision: "answered",
-      text:
-        "Hi, I'm ResolveAI. Tell me what's going on with your order and I'll take it from there.",
-      reasoning: null,
-    },
-  ]);
+  const DEFAULT_GREETING = {
+  id: nextId(),
+  role: "agent",
+  decision: "answered",
+  text:
+    "Hi, I'm ResolveAI. Tell me what's going on with your order and I'll take it from there.",
+  reasoning: null,
+};
+
+const [messages, setMessages] = useState(() => {
+  try {
+    const saved = localStorage.getItem("resolveai_messages");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error("Failed to load saved messages:", e);
+  }
+  return [DEFAULT_GREETING];
+});
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [wakingUp, setWakingUp] = useState(false);
@@ -121,6 +134,26 @@ export default function ResolveAIChat() {
       clearTimeout(wakingTimerRef.current);
     };
   }, []);
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, isLoading]);
+
+  useEffect(() => {
+    return () => {
+      clearInterval(stepTimerRef.current);
+      clearTimeout(wakingTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("resolveai_messages", JSON.stringify(messages));
+    } catch (e) {
+      console.error("Failed to save messages:", e);
+    }
+  }, [messages]);
 
   const toggleReasoning = (id) => {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
