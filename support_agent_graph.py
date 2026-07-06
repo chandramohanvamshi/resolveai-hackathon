@@ -117,13 +117,13 @@ def reason_and_decide(state: AgentState) -> AgentState:
         }
 
     if state["intent"] == "unclear":
+        answer = answer_general_question(state["customer_message"], state["policy_context"])
         return {
             **state,
             "decision": "answered",
-            "reasoning": "Message intent was unclear.",
-            "action_result": "I'm not sure I understood that. Could you tell me more about what you need help with - for example, an order issue or a general question?",
+            "reasoning": "Message intent was unclear; asked Gemini to respond conversationally.",
+            "action_result": answer,
         }
-
     if not state["order_id"]:
         return {
             **state,
