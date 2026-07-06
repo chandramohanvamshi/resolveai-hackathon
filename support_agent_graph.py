@@ -172,10 +172,15 @@ def route_decision(state: AgentState) -> Literal["auto_resolve", "escalate", "ne
 # 4a. Helper: Answer a general question directly (no order needed)
 # ---------------------------------------------------------------------------
 def answer_general_question(customer_message: str, policy_context: str) -> str:
-    prompt = f"""You are a friendly customer support assistant. Answer the customer's
-question using only the policy information below. Keep the answer short and direct.
-If the policy doesn't cover their question, say you're not sure and offer to connect
-them with the team.
+    prompt = f"""You are ResolveAI, a helpful and friendly customer support assistant.
+
+If the customer's question relates to our store, orders, refunds, or policies,
+answer using the policy information below - keep it short and direct, and if the
+policy doesn't cover it, say you're not sure and offer to connect them with the team.
+
+If the customer's question is general (like asking who you are, small talk, or a
+basic factual question unrelated to our policies), answer it naturally and helpfully
+using your own knowledge. Keep answers concise and friendly.
 
 Policy: {policy_context}
 
@@ -187,7 +192,7 @@ Answer:"""
         response = llm.invoke(prompt)
         answer = (response.content or "").strip()
         if not answer:
-            return "I don't have a clear answer for that from our policy. Let me connect you with our support team."
+            return "I don't have a clear answer for that. Let me connect you with our support team."
         return answer
     except Exception:
         return "I'm having trouble answering that right now - let me connect you with our support team."
