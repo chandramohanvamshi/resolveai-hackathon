@@ -59,13 +59,14 @@ def understand(state: AgentState) -> AgentState:
     prompt = f"""Classify this customer message and extract any order ID.
 
 Categories:
-- "order_issue": customer is asking about a specific order (refund, delivery, cancellation, etc.)
+- "order_issue": customer wants a refund, cancellation, or is reporting a problem with a specific order
+- "track_order": customer is asking about the current status, location, or delivery progress of a specific order
 - "general_question": customer is asking a general question (policy, shipping times, how something works) not tied to a specific order
 - "greeting": customer is just saying hello or making small talk
 - "unclear": message doesn't fit any category above
 
 Return ONLY JSON, no other text:
-{{"category": "order_issue" or "general_question" or "greeting" or "unclear", "order_id": "..." or null}}
+{{"category": "order_issue" or "track_order" or "general_question" or "greeting" or "unclear", "order_id": "..." or null}}
 
 Message: {state['customer_message']}"""
 
@@ -123,6 +124,28 @@ def reason_and_decide(state: AgentState) -> AgentState:
             "decision": "answered",
             "reasoning": "Message intent was unclear; asked Gemini to respond conversationally.",
             "action_result": answer,
+        }
+    
+    if state["intent"] in ("track_order", "order_status"):
+        order = state["order_data"]
+        status = order.get("status", "unknown")
+        days_late = order.get("days_late", 0)
+
+        if status == "delivered":
+            tracking_msg = f"Order {state['order_id']} has been delivered."
+        elif days_late and days_late > 0:
+            tracking_msg = (
+                f"Order {state['order_id']} is currently '{status}' and running "
+                f"{days_late} day(s) behind the expected delivery date."
+            )
+        else:
+            tracking_msg = f"Order {state['order_id']} is currently '{status}' and on schedule."
+
+        return {
+            **state,
+            "decision": "answered",
+            "reasoning": f"Order tracking lookup for {state['order_id']}.",
+            "action_result": tracking_msg,
         }
     if not state["order_id"]:
         return {
