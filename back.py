@@ -42,8 +42,6 @@ import json
 import secrets
 import smtplib
 from email.mime.text import MIMEText
-import traceback
-import traceback
 from typing import TypedDict, Literal, Optional
 
 from dotenv import load_dotenv
@@ -579,7 +577,6 @@ class LoginRequest(BaseModel):
     email: str
     password: str
 
-import traceback   # <-- put this at the TOP of the file with the other imports
 
 @app_api.post("/signup")
 def signup(request: SignupRequest):
@@ -588,7 +585,6 @@ def signup(request: SignupRequest):
             "email": request.email,
             "password": request.password,
         })
-
         user = result.user
         if user is None:
             return {"error": "Signup failed. The email may already be registered."}
@@ -599,13 +595,9 @@ def signup(request: SignupRequest):
             "upi_id": request.upi_id,
         }).execute()
 
-        return {
-            "message": "Signup successful. Please check your email to confirm your account, then log in."
-        }
-
-    except Exception:
-        traceback.print_exc()
-        raise
+        return {"message": "Signup successful. Please check your email to confirm your account, then log in."}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app_api.post("/login")
